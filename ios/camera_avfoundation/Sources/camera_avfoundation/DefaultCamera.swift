@@ -184,6 +184,8 @@ final class DefaultCamera: NSObject, Camera {
   private static let kExposureBias = "retrocam_exposure_bias"
   private static let kWhiteBalanceTemperature = "retrocam_white_balance_temperature"
   private static let kISO = "retrocam_iso"
+  private static let kShutterSpeed = "retrocam_shutter_speed"
+  private static let kFocusDistance = "retrocam_focus_distance"
 
   init(configuration: CameraConfiguration) throws {
     captureSessionQueue = configuration.captureSessionQueue
@@ -324,14 +326,47 @@ final class DefaultCamera: NSObject, Camera {
         device.setWhiteBalanceModeLocked(with: gains, completionHandler: nil)
       }
       
-      // Apply ISO (0 = auto)
+      // Apply ISO and Shutter Speed (0 = auto for both)
       let savedISO = UserDefaults.standard.integer(forKey: DefaultCamera.kISO)
-      if savedISO > 0 && device.isExposureModeSupported(.custom) {
+      let savedShutterSpeed = UserDefaults.standard.integer(forKey: DefaultCamera.kShutterSpeed)
+      
+      if (savedISO > 0 || savedShutterSpeed > 0) && device.isExposureModeSupported(.custom) {
         let minISO = device.activeFormat.minISO
         let maxISO = device.activeFormat.maxISO
-        let clampedISO = max(minISO, min(maxISO, Float(savedISO)))
-        let currentDuration = device.exposureDuration
-        device.setExposureModeCustom(duration: currentDuration, iso: clampedISO, completionHandler: nil)
+        let minDuration = device.activeFormat.minExposureDuration
+        let maxDuration = device.activeFormat.maxExposureDuration
+        
+        // Use saved ISO or current ISO
+        let targetISO: Float
+        if savedISO > 0 {
+          targetISO = max(minISO, min(maxISO, Float(savedISO)))
+        } else {
+          targetISO = device.iso
+        }
+        
+        // Use saved shutter speed or current duration
+        let targetDuration: CMTime
+        if savedShutterSpeed > 0 {
+          let duration = CMTimeMake(value: 1, timescale: Int32(savedShutterSpeed))
+          if CMTimeCompare(duration, minDuration) < 0 {
+            targetDuration = minDuration
+          } else if CMTimeCompare(duration, maxDuration) > 0 {
+            targetDuration = maxDuration
+          } else {
+            targetDuration = duration
+          }
+        } else {
+          targetDuration = device.exposureDuration
+        }
+        
+        device.setExposureModeCustom(duration: targetDuration, iso: targetISO, completionHandler: nil)
+      }
+      
+      // Apply Focus Distance (-1.0 = auto, 0.0-1.0 = manual position)
+      let savedFocusDistance = UserDefaults.standard.double(forKey: DefaultCamera.kFocusDistance)
+      if savedFocusDistance >= 0.0 && savedFocusDistance <= 1.0 {
+        let lensPosition = Float(max(0.0, min(1.0, savedFocusDistance)))
+        device.setFocusModeLocked(lensPosition: lensPosition, completionHandler: nil)
       }
       
     } catch {

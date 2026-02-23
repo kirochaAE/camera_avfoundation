@@ -295,16 +295,18 @@ final class DefaultCamera: NSObject, Camera {
   /// Apply camera settings saved by ManualCameraPlugin
   /// Called during camera initialization to restore user preferences
   private func applySavedCameraSettings() {
+    let device = captureDevice.avDevice
+    
     do {
-      try captureDevice.lockForConfiguration()
-      defer { captureDevice.unlockForConfiguration() }
+      try device.lockForConfiguration()
+      defer { device.unlockForConfiguration() }
       
       // Apply Exposure Bias
       let exposureBias = UserDefaults.standard.double(forKey: DefaultCamera.kExposureBias)
       if exposureBias != 0 {
-        let clampedBias = max(captureDevice.minExposureTargetBias, 
-                              min(captureDevice.maxExposureTargetBias, Float(exposureBias)))
-        captureDevice.setExposureTargetBias(clampedBias, completionHandler: nil)
+        let clampedBias = max(device.minExposureTargetBias, 
+                              min(device.maxExposureTargetBias, Float(exposureBias)))
+        device.setExposureTargetBias(clampedBias, completionHandler: nil)
       }
       
       // Apply White Balance (temperature in Kelvin, 0 = auto)
@@ -314,22 +316,22 @@ final class DefaultCamera: NSObject, Camera {
           temperature: Float(whiteBalanceTemp),
           tint: 0.0
         )
-        var gains = captureDevice.deviceWhiteBalanceGains(for: temperatureAndTint)
-        let maxGain = captureDevice.maxWhiteBalanceGain
+        var gains = device.deviceWhiteBalanceGains(for: temperatureAndTint)
+        let maxGain = device.maxWhiteBalanceGain
         gains.redGain = max(1.0, min(maxGain, gains.redGain))
         gains.greenGain = max(1.0, min(maxGain, gains.greenGain))
         gains.blueGain = max(1.0, min(maxGain, gains.blueGain))
-        captureDevice.setWhiteBalanceModeLocked(with: gains, completionHandler: nil)
+        device.setWhiteBalanceModeLocked(with: gains, completionHandler: nil)
       }
       
       // Apply ISO (0 = auto)
       let savedISO = UserDefaults.standard.integer(forKey: DefaultCamera.kISO)
-      if savedISO > 0 && captureDevice.isExposureModeSupported(.custom) {
-        let minISO = captureDevice.activeFormat.minISO
-        let maxISO = captureDevice.activeFormat.maxISO
+      if savedISO > 0 && device.isExposureModeSupported(.custom) {
+        let minISO = device.activeFormat.minISO
+        let maxISO = device.activeFormat.maxISO
         let clampedISO = max(minISO, min(maxISO, Float(savedISO)))
-        let currentDuration = captureDevice.exposureDuration
-        captureDevice.setExposureModeCustom(duration: currentDuration, iso: clampedISO, completionHandler: nil)
+        let currentDuration = device.exposureDuration
+        device.setExposureModeCustom(duration: currentDuration, iso: clampedISO, completionHandler: nil)
       }
       
     } catch {

@@ -179,6 +179,11 @@ final class DefaultCamera: NSObject, Camera {
     }
     return .off
   }
+  
+  // MARK: - UserDefaults Keys for Camera Settings
+  private static let kExposureBias = "retrocam_exposure_bias"
+  private static let kWhiteBalanceTemperature = "retrocam_white_balance_temperature"
+  private static let kISO = "retrocam_iso"
 
   init(configuration: CameraConfiguration) throws {
     captureSessionQueue = configuration.captureSessionQueue
@@ -253,6 +258,9 @@ final class DefaultCamera: NSObject, Camera {
     }
 
     updateOrientation()
+    
+    // Apply saved camera settings from UserDefaults (set by ManualCameraPlugin)
+    applySavedCameraSettings()
 
     // Handle video and audio interruptions and errors. Interruption can happen for example by
     // an incoming call during video recording. Error can happen for example when recording starts
@@ -280,6 +288,53 @@ final class DefaultCamera: NSObject, Camera {
   @objc private func captureSessionRuntimeError(notification: NSNotification) {
     reportErrorMessage(
       "\(String(describing: notification.userInfo?[AVCaptureSessionErrorKey] as? Error))")
+  }
+  
+  // MARK: - Apply Saved Camera Settings from UserDefaults
+  
+  /// Apply camera settings saved by ManualCameraPlugin
+  /// Called during camera initialization to restore user preferences
+  private func applySavedCameraSettings() {
+    do {
+      try captureDevice.lockForConfiguration()
+      defer { captureDevice.unlockForConfiguration() }
+      
+      // Apply Exposure Bias
+      let exposureBias = UserDefaults.standard.double(forKey: DefaultCamera.kExposureBias)
+      if exposureBias != 0 {
+        let clampedBias = max(captureDevice.minExposureTargetBias, 
+                              min(captureDevice.maxExposureTargetBias, Float(exposureBias)))
+        captureDevice.setExposureTargetBias(clampedBias, completionHandler: nil)
+      }
+      
+      // Apply White Balance (temperature in Kelvin, 0 = auto)
+      let whiteBalanceTemp = UserDefaults.standard.integer(forKey: DefaultCamera.kWhiteBalanceTemperature)
+      if whiteBalanceTemp > 0 {
+        let temperatureAndTint = AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(
+          temperature: Float(whiteBalanceTemp),
+          tint: 0.0
+        )
+        var gains = captureDevice.deviceWhiteBalanceGains(for: temperatureAndTint)
+        let maxGain = captureDevice.maxWhiteBalanceGain
+        gains.redGain = max(1.0, min(maxGain, gains.redGain))
+        gains.greenGain = max(1.0, min(maxGain, gains.greenGain))
+        gains.blueGain = max(1.0, min(maxGain, gains.blueGain))
+        captureDevice.setWhiteBalanceModeLocked(with: gains, completionHandler: nil)
+      }
+      
+      // Apply ISO (0 = auto)
+      let savedISO = UserDefaults.standard.integer(forKey: DefaultCamera.kISO)
+      if savedISO > 0 && captureDevice.isExposureModeSupported(.custom) {
+        let minISO = captureDevice.activeFormat.minISO
+        let maxISO = captureDevice.activeFormat.maxISO
+        let clampedISO = max(minISO, min(maxISO, Float(savedISO)))
+        let currentDuration = captureDevice.exposureDuration
+        captureDevice.setExposureModeCustom(duration: currentDuration, iso: clampedISO, completionHandler: nil)
+      }
+      
+    } catch {
+      // Silently fail - camera settings are nice-to-have
+    }
   }
 
   // Possible values for presets are hard-coded in FLT interface having
